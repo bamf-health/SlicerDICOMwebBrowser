@@ -80,7 +80,7 @@ class DICOMwebBrowserWidget(ScriptedLoadableModuleWidget):
     # Ensure that correct version of dicomweb-clien Python package is installed
     needRestart = False
     needInstall = False
-    minimumDicomwebClientVersion = "0.51"
+    minimumDicomwebClientVersion = "0.57"
     try:
       import dicomweb_client
       from packaging import version
@@ -543,7 +543,7 @@ Disable if data is added or removed from the database."""
     # steps for a few server types.
     if "googleapis.com" in self.serverUrl:
       # Google Healthcare API
-      headers["Authorization"] = f"Bearer {GoogleCloudPlatform().token()}"
+      session = GoogleCloudPlatform().session()
     elif "kheops" in self.serverUrl:
       # Kheops DICOMweb API endpoint from browser view URL
       url = qt.QUrl(self.serverUrl)
@@ -1150,6 +1150,18 @@ class GoogleCloudPlatform(object):
 
   def token(self):
     return self.gcloud("auth print-access-token").strip()
+
+  def session(self):
+    import dicomweb_client
+    # use session management, which doesn't expire like token authorization does
+    try:
+      from dicomweb_client.ext.gcp.session_utils import create_session_from_gcp_credentials
+    except ImportError:
+      # install optional gcp utils
+      slicer.util.pip_install(f'dicomweb-client[gcp]=={dicomweb_client.__version__}')
+      from dicomweb_client.ext.gcp.session_utils import create_session_from_gcp_credentials
+
+    return create_session_from_gcp_credentials()
 
 
 #
