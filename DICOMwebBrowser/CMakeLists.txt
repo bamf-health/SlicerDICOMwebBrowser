@@ -13,6 +13,8 @@ set(MODULE_PYTHON_RESOURCES
   Resources/Icons/stored.png
   Resources/Icons/download.png
   Resources/Icons/cancel.png
+  Resources/UI/DICOMwebBrowserWidget.ui
+  Resources/UI/DICOMwebPanelWidget.ui
   )
 
 #-----------------------------------------------------------------------------

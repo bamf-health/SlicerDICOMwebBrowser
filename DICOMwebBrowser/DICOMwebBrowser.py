@@ -6,7 +6,6 @@ import os
 import os.path
 import pydicom
 import shutil
-import string
 import sys
 import time
 import unittest
@@ -62,9 +61,6 @@ class DICOMwebBrowserWidget(ScriptedLoadableModuleWidget):
 
     self.showBrowserOnEnter = True
     self.DICOMwebClient = None
-
-    self.browserWidget = qt.QWidget()
-    self.browserWidget.setWindowTitle('DICOMweb Browser')
 
     self.seriesTableRowCount = 0
     self.selectedSeriesNicknamesDic = {}
@@ -129,18 +125,19 @@ class DICOMwebBrowserWidget(ScriptedLoadableModuleWidget):
     cancelIcon = qt.QIcon(self.resourcePath('Icons/cancel.png'))
     self.downloadIcon = qt.QIcon(self.resourcePath('Icons/download.png'))
     self.storedlIcon = qt.QIcon(self.resourcePath('Icons/stored.png'))
-    self.browserWidget.setWindowIcon(browserIcon)
 
-    #
-    # Browser Area
-    #
-    browserCollapsibleButton = ctk.ctkCollapsibleButton()
-    browserCollapsibleButton.text = "DICOMweb Browser"
-    self.layout.addWidget(browserCollapsibleButton)
-    browserLayout = qt.QVBoxLayout(browserCollapsibleButton)
+    # Side Panel Controls
+    uiWidget = slicer.util.loadUI(self.resourcePath("UI/DICOMwebPanelWidget.ui"))
+    self.layout.addWidget(uiWidget)
+    self.sideui = slicer.util.childWidgetVariables(uiWidget)
+    self.sideui.storagePathButton.directory = self.storagePath
+
+    # Browser Window
+    uiBrowserWidget = slicer.util.loadUI(self.resourcePath("UI/DICOMwebBrowserWidget.ui"))
+    self.ui = slicer.util.childWidgetVariables(uiBrowserWidget)
+    self.ui.browserWidget.setWindowIcon(browserIcon)
 
     self.popupGeometry = qt.QRect()
-    settings = qt.QSettings()
     mainWindow = slicer.util.mainWindow()
     if mainWindow:
       width = mainWindow.width * 0.75
@@ -148,279 +145,70 @@ class DICOMwebBrowserWidget(ScriptedLoadableModuleWidget):
       self.popupGeometry.setWidth(width)
       self.popupGeometry.setHeight(height)
       self.popupPositioned = False
-      self.browserWidget.setGeometry(self.popupGeometry)
+      self.ui.browserWidget.setGeometry(self.popupGeometry)
 
-    #
-    # Select DICOM Store Button
-    #
-    self.selectDICOMStoreButton = qt.QPushButton("Select DICOM Store")
-    browserLayout.addWidget(self.selectDICOMStoreButton)
-
-    #
-    # Show Browser Button
-    #
-    self.showBrowserButton = qt.QPushButton("Show Browser")
-    browserLayout.addWidget(self.showBrowserButton)
-
-    # Browser Widget Layout within the collapsible button
-    browserWidgetLayout = qt.QVBoxLayout(self.browserWidget)
-
-    self.serverCollapsibleGroupBox = ctk.ctkCollapsibleGroupBox()
-    self.serverCollapsibleGroupBox.setTitle('Server')
-    browserWidgetLayout.addWidget(self.serverCollapsibleGroupBox)  #
-    serverFormLayout = qt.QHBoxLayout(self.serverCollapsibleGroupBox)
-
-    #
-    # Collection Selector ComboBox
-    #
-    self.serverUrlLabel = qt.QLabel('Server URL:')
-    serverFormLayout.addWidget(self.serverUrlLabel)
-    # Server address selector
-    self.serverUrlLineEdit = qt.QComboBox()
-    self.serverUrlLineEdit.editable = True
-    qSize = qt.QSizePolicy()
-    qSize.setHorizontalPolicy(qt.QSizePolicy.Expanding)
-    qSize.setVerticalPolicy(qt.QSizePolicy.Preferred)
-    self.serverUrlLineEdit.setSizePolicy(qSize)
-    self.serverUrlLineEdit.currentText = qt.QSettings().value('DICOMwebBrowser/ServerURL', '')
-    serverFormLayout.addWidget(self.serverUrlLineEdit)
-
-    self.connectToServerButton = qt.QPushButton()
-    self.connectToServerButton.text = "Connect"
-    serverFormLayout.addWidget(self.connectToServerButton)
-
-    #
-    # Use Cache CheckBox
-    #
-    self.useCacheCeckBox = qt.QCheckBox("Use cached server responses")
-    self.useCacheCeckBox.toolTip = """For faster browsing, if this box is checked \
-the browser will use cached server responses and on further calls would populate tables based on saved data on disk. \
-Disable if data is added or removed from the database."""
-
-    serverFormLayout.addWidget(self.useCacheCeckBox)
-    self.useCacheCeckBox.setCheckState(True)
-    self.useCacheCeckBox.setTristate(False)
-    #logoLabelText = "<img src='" + self.resourcePath('Icons/DICOMwebBrowser.png') + "'>"
-    #self.logoLabel = qt.QLabel(logoLabelText)
-    #serverFormLayout.addWidget(self.logoLabel)
+    self.ui.serverUrlLineEdit.currentText = qt.QSettings().value('DICOMwebBrowser/ServerURL', '')
 
     #
     # Studies Table Widget
     #
-    self.studiesCollapsibleGroupBox = ctk.ctkCollapsibleGroupBox()
-    self.studiesCollapsibleGroupBox.setTitle('Studies')
-    browserWidgetLayout.addWidget(self.studiesCollapsibleGroupBox)
-    studiesVBoxLayout1 = qt.QVBoxLayout(self.studiesCollapsibleGroupBox)
-    studiesExpdableArea = ctk.ctkExpandableWidget()
-    studiesVBoxLayout1.addWidget(studiesExpdableArea)
-    studiesVBoxLayout2 = qt.QVBoxLayout(studiesExpdableArea)
-    self.studiesTableWidget = qt.QTableWidget()
-    self.studiesTableWidget.setCornerButtonEnabled(True)
-    self.studiesModel = qt.QStandardItemModel()
     self.studiesTableHeaderLabels = ['Study instance UID', 'Patient name', 'Patient ID', 'Modalities', 'Study date', 'Study description']
-    self.studiesTableWidget.setColumnCount(len(self.studiesTableHeaderLabels))
-    self.studiesTableWidget.sortingEnabled = True
-    self.studiesTableWidget.hideColumn(0)
-    self.studiesTableWidget.setHorizontalHeaderLabels(self.studiesTableHeaderLabels)
-    studiesVBoxLayout2.addWidget(self.studiesTableWidget)
-    self.studiesTreeSelectionModel = self.studiesTableWidget.selectionModel()
-    self.studiesTableWidget.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
-    studiesVerticalheader = self.studiesTableWidget.verticalHeader()
-    studiesVerticalheader.setDefaultSectionSize(20)
-    self.studiesTableWidgetHeader = self.studiesTableWidget.horizontalHeader()
-    self.studiesTableWidget.resizeColumnsToContents()
-    self.studiesTableWidgetHeader.setStretchLastSection(True)
-
-    studiesSelectOptionsWidget = qt.QWidget()
-    studiesSelectOptionsLayout = qt.QHBoxLayout(studiesSelectOptionsWidget)
-    studiesSelectOptionsLayout.setMargin(0)
-    studiesVBoxLayout2.addWidget(studiesSelectOptionsWidget)
-    studiesSelectLabel = qt.QLabel('Select:')
-    studiesSelectOptionsLayout.addWidget(studiesSelectLabel)
-    self.studiesSelectAllButton = qt.QPushButton('All')
-    self.studiesSelectAllButton.enabled = False
-    self.studiesSelectAllButton.setMaximumWidth(50)
-    studiesSelectOptionsLayout.addWidget(self.studiesSelectAllButton)
-    self.studiesSelectNoneButton = qt.QPushButton('None')
-    self.studiesSelectNoneButton.enabled = False
-    self.studiesSelectNoneButton.setMaximumWidth(50)
-    studiesSelectOptionsLayout.addWidget(self.studiesSelectNoneButton)
-    studiesFilterLabel = qt.QLabel('Filter:')
-    studiesSelectOptionsLayout.addWidget(studiesFilterLabel)
-    self.studiesFilter = ctk.ctkSearchBox()
-    self.studiesFilter.placeholderText = "Filter..."
-    self.studiesFilter.showSearchIcon = True
-    studiesSelectOptionsLayout.addWidget(self.studiesFilter)
-    studiesVBoxLayout1.setSpacing(0)
-    studiesVBoxLayout2.setSpacing(0)
-    studiesVBoxLayout1.setMargin(0)
-    studiesVBoxLayout2.setContentsMargins(7, 3, 7, 7)
+    self.ui.studiesTableWidget.setColumnCount(len(self.studiesTableHeaderLabels))
+    self.ui.studiesTableWidget.hideColumn(0)
+    self.ui.studiesTableWidget.setHorizontalHeaderLabels(self.studiesTableHeaderLabels)
+    self.ui.studiesTableWidget.resizeColumnsToContents()
 
     #
     # Series Table Widget
     #
-    self.seriesCollapsibleGroupBox = ctk.ctkCollapsibleGroupBox()
-    self.seriesCollapsibleGroupBox.setTitle('Series')
-    browserWidgetLayout.addWidget(self.seriesCollapsibleGroupBox)
-    seriesVBoxLayout1 = qt.QVBoxLayout(self.seriesCollapsibleGroupBox)
-    seriesExpdableArea = ctk.ctkExpandableWidget()
-    seriesVBoxLayout1.addWidget(seriesExpdableArea)
-    seriesVBoxLayout2 = qt.QVBoxLayout(seriesExpdableArea)
-    self.seriesTableWidget = qt.QTableWidget()
-    # self.seriesModel = qt.QStandardItemModel()
     self.seriesTableHeaderLabels = ['Series Instance UID', 'Status', 'Series number', 'Modality',
                                     'Image count', 'Series description']
-    self.seriesTableWidget.setColumnCount(len(self.seriesTableHeaderLabels))
-    self.seriesTableWidget.sortingEnabled = True
-    self.seriesTableWidget.hideColumn(0)
-    self.seriesTableWidget.setHorizontalHeaderLabels(self.seriesTableHeaderLabels)
-    self.seriesTableWidget.resizeColumnsToContents()
-    seriesVBoxLayout2.addWidget(self.seriesTableWidget)
-    self.seriesTreeSelectionModel = self.studiesTableWidget.selectionModel()
-    self.seriesTableWidget.setSelectionBehavior(qt.QAbstractItemView.SelectRows)
-    self.seriesTableWidget.setSelectionMode(3)
-    self.seriesTableWidgetHeader = self.seriesTableWidget.horizontalHeader()
+    self.ui.seriesTableWidget.setColumnCount(len(self.seriesTableHeaderLabels))
+    self.ui.seriesTableWidget.hideColumn(0)
+    self.ui.seriesTableWidget.setHorizontalHeaderLabels(self.seriesTableHeaderLabels)
     self.seriesItemSeriesInstanceUIDRole = qt.Qt.UserRole
     self.seriesItemStudyInstanceUIDRole = qt.Qt.UserRole+1
+    self.ui.seriesTableWidget.resizeColumnsToContents()
 
-    self.seriesTableWidget.resizeColumnsToContents()
-    self.seriesTableWidgetHeader.setStretchLastSection(True)
-    seriesVerticalheader = self.seriesTableWidget.verticalHeader()
-    seriesVerticalheader.setDefaultSectionSize(20)
-
-    seriesSelectOptionsWidget = qt.QWidget()
-    seriesSelectOptionsLayout = qt.QHBoxLayout(seriesSelectOptionsWidget)
-    seriesVBoxLayout2.addWidget(seriesSelectOptionsWidget)
-    seriesSelectOptionsLayout.setMargin(0)
-    seriesSelectLabel = qt.QLabel('Select:')
-    seriesSelectOptionsLayout.addWidget(seriesSelectLabel)
-    self.seriesSelectAllButton = qt.QPushButton('All')
-    self.seriesSelectAllButton.enabled = False
-    self.seriesSelectAllButton.setMaximumWidth(50)
-    seriesSelectOptionsLayout.addWidget(self.seriesSelectAllButton)
-    self.seriesSelectNoneButton = qt.QPushButton('None')
-    self.seriesSelectNoneButton.enabled = False
-    self.seriesSelectNoneButton.setMaximumWidth(50)
-    seriesSelectOptionsLayout.addWidget(self.seriesSelectNoneButton)
-    seriesVBoxLayout1.setSpacing(0)
-    seriesVBoxLayout2.setSpacing(0)
-    seriesVBoxLayout1.setMargin(0)
-    seriesVBoxLayout2.setContentsMargins(7, 3, 7, 7)
-
-    seriesSelectOptionsLayout.addStretch(1)
-    self.imagesCountLabel = qt.QLabel()
-    self.imagesCountLabel.text = 'No. of images to download: <span style=" font-size:8pt; font-weight:600; color:#aa0000;">0</span>'
-    seriesSelectOptionsLayout.addWidget(self.imagesCountLabel)
-    # seriesSelectOptionsLayout.setAlignment(qt.Qt.AlignTop)
-
-    # Index Button
     #
-    self.indexButton = qt.QPushButton()
-    self.indexButton.setMinimumWidth(50)
-    self.indexButton.toolTip = "Download and Index: The browser will download the selected sereies and index them in the local DICOM Database."
-    self.indexButton.setIcon(downloadAndIndexIcon)
+    # Index Buttons
+    #
+    self.ui.indexButton.setIcon(downloadAndIndexIcon)
     iconSize = qt.QSize(70, 40)
-    self.indexButton.setIconSize(iconSize)
-    # self.indexButton.setMinimumHeight(50)
-    self.indexButton.enabled = False
-    # downloadWidgetLayout.addStretch(4)
-    seriesSelectOptionsLayout.addWidget(self.indexButton)
-
-    # downloadWidgetLayout.addStretch(1)
-    #
-    # Load Button
-    #
-    self.loadButton = qt.QPushButton("")
-    self.loadButton.setMinimumWidth(50)
-    self.loadButton.setIcon(downloadAndLoadIcon)
-    self.loadButton.setIconSize(iconSize)
-    # self.loadButton.setMinimumHeight(50)
-    self.loadButton.toolTip = "Download and Load: The browser will download the selected sereies and Load them into the scene."
-    self.loadButton.enabled = False
-    seriesSelectOptionsLayout.addWidget(self.loadButton)
-    # downloadWidgetLayout.addStretch(4)
-
-    self.cancelDownloadButton = qt.QPushButton('')
-    seriesSelectOptionsLayout.addWidget(self.cancelDownloadButton)
-    self.cancelDownloadButton.setIconSize(iconSize)
-    self.cancelDownloadButton.toolTip = "Cancel all downloads."
-    self.cancelDownloadButton.setIcon(cancelIcon)
-    self.cancelDownloadButton.enabled = False
-
-    self.statusFrame = qt.QFrame()
-    browserWidgetLayout.addWidget(self.statusFrame)
-    statusHBoxLayout = qt.QHBoxLayout(self.statusFrame)
-    statusHBoxLayout.setMargin(0)
-    statusHBoxLayout.setSpacing(0)
-    self.statusLabel = qt.QLabel('')
-    statusHBoxLayout.addWidget(self.statusLabel)
-    statusHBoxLayout.addStretch(1)
+    self.ui.indexButton.setIconSize(iconSize)
+    self.ui.indexButton.enabled = False
+    self.ui.loadButton.setIcon(downloadAndLoadIcon)
+    self.ui.loadButton.setIconSize(iconSize)
+    self.ui.cancelDownloadButton.setIconSize(iconSize)
+    self.ui.cancelDownloadButton.setIcon(cancelIcon)
 
     #
     # delete data context menu
     #
-    self.seriesTableWidget.setContextMenuPolicy(2)
-    self.removeSeriesFromLocalDatabaseAction = qt.QAction("Remove from disk", self.seriesTableWidget)
-    self.seriesTableWidget.addAction(self.removeSeriesFromLocalDatabaseAction)
-    # self.removeSeriesFromLocalDatabaseAction.enabled = False
-    self.removeSeriesFromServerAction = qt.QAction("Remove from remote server", self.seriesTableWidget)
-    self.seriesTableWidget.addAction(self.removeSeriesFromServerAction)
+    self.removeSeriesFromLocalDatabaseAction = qt.QAction("Remove from disk", self.ui.seriesTableWidget)
+    self.ui.seriesTableWidget.addAction(self.removeSeriesFromLocalDatabaseAction)
+    self.removeSeriesFromServerAction = qt.QAction("Remove from remote server", self.ui.seriesTableWidget)
+    self.ui.seriesTableWidget.addAction(self.removeSeriesFromServerAction)
 
-    #
-    # Settings Area
-    #
-    settingsCollapsibleButton = ctk.ctkCollapsibleButton()
-    settingsCollapsibleButton.text = "Settings"
-    self.layout.addWidget(settingsCollapsibleButton)
-    settingsGridLayout = qt.QGridLayout(settingsCollapsibleButton)
-    settingsCollapsibleButton.collapsed = True
-
-    # Storage Path button
-    #
-    # storageWidget = qt.QWidget()
-    # storageFormLayout = qt.QFormLayout(storageWidget)
-    # settingsVBoxLayout.addWidget(storageWidget)
-
-    storagePathLabel = qt.QLabel("Storage Folder: ")
-    self.storagePathButton = ctk.ctkDirectoryButton()
-    self.storagePathButton.directory = self.storagePath
-    settingsGridLayout.addWidget(storagePathLabel, 0, 0, 1, 1)
-    settingsGridLayout.addWidget(self.storagePathButton, 0, 1, 1, 4)
-
-    #
-    # Connection Area
-    #
-    # Add remove button
-    customAPILabel = qt.QLabel("Custom API Key: ")
-
-    addRemoveApisButton = qt.QPushButton("+")
-    addRemoveApisButton.toolTip = "Add or Remove APIs"
-    addRemoveApisButton.enabled = True
-    addRemoveApisButton.setMaximumWidth(20)
 
     # connections
-    self.showBrowserButton.connect('clicked(bool)', self.onShowBrowserButton)
-    self.selectDICOMStoreButton.connect('clicked(bool)', self.onSelectDICOMStoreButton)
-    self.connectToServerButton.connect('clicked()', self.connectToServer)
-    self.studiesTableWidget.connect('itemSelectionChanged()', self.studiesTableSelectionChanged)
-    self.seriesTableWidget.connect('itemSelectionChanged()', self.seriesSelected)
-    self.useCacheCeckBox.connect('stateChanged(int)', self.onUseCacheStateChanged)
-    self.indexButton.connect('clicked(bool)', self.onIndexButton)
-    self.loadButton.connect('clicked(bool)', self.onLoadButton)
-    self.cancelDownloadButton.connect('clicked(bool)', self.onCancelDownloadButton)
-    self.storagePathButton.connect('directoryChanged(const QString &)', self.onStoragePathButton)
+    self.sideui.showBrowserButton.connect('clicked(bool)', self.onShowBrowserButton)
+    self.sideui.selectDICOMStoreButton.connect('clicked(bool)', self.onSelectDICOMStoreButton)
+    self.sideui.storagePathButton.connect('directoryChanged(const QString &)', self.onStoragePathButton)
+    self.ui.connectToServerButton.connect('clicked()', self.connectToServer)
+    self.ui.studiesTableWidget.connect('itemSelectionChanged()', self.studiesTableSelectionChanged)
+    self.ui.seriesTableWidget.connect('itemSelectionChanged()', self.seriesSelected)
+    self.ui.useCacheCeckBox.connect('stateChanged(int)', self.onUseCacheStateChanged)
+    self.ui.indexButton.connect('clicked(bool)', self.onIndexButton)
+    self.ui.loadButton.connect('clicked(bool)', self.onLoadButton)
+    self.ui.cancelDownloadButton.connect('clicked(bool)', self.onCancelDownloadButton)
     self.removeSeriesFromLocalDatabaseAction.connect('triggered()', self.onRemoveSeriesFromLocalDatabaseContextMenuTriggered)
     self.removeSeriesFromServerAction.connect('triggered()', self.onRemoveSeriesFromServerContextMenuTriggered)
-    self.seriesSelectAllButton.connect('clicked(bool)', self.onSeriesSelectAllButton)
-    self.seriesSelectNoneButton.connect('clicked(bool)', self.onSeriesSelectNoneButton)
-    self.studiesSelectAllButton.connect('clicked(bool)', self.onStudiesSelectAllButton)
-    self.studiesSelectNoneButton.connect('clicked(bool)', self.onStudiesSelectNoneButton)
-    self.studiesFilter.connect('textEdited(QString)', lambda: self.studyFilterUpdateTimer.start())
-
-    # Add vertical spacer
-    self.layout.addStretch(1)
-
-    #self.connectToServer()
+    self.ui.seriesSelectAllButton.connect('clicked(bool)', self.onSeriesSelectAllButton)
+    self.ui.seriesSelectNoneButton.connect('clicked(bool)', self.onSeriesSelectNoneButton)
+    self.ui.studiesSelectAllButton.connect('clicked(bool)', self.onStudiesSelectAllButton)
+    self.ui.studiesSelectNoneButton.connect('clicked(bool)', self.onStudiesSelectNoneButton)
+    self.ui.studiesFilter.connect('textEdited(QString)', lambda: self.studyFilterUpdateTimer.start())
 
   def cleanup(self):
     self.studyFilterUpdateTimer.stop()
@@ -444,7 +232,7 @@ Disable if data is added or removed from the database."""
       ))
 
       qt.QSettings().setValue('DICOMwebBrowser/ServerURL', url)
-      self.serverUrlLineEdit.currentText = qt.QSettings().value('DICOMwebBrowser/ServerURL', url)
+      self.ui.serverUrlLineEdit.currentText = qt.QSettings().value('DICOMwebBrowser/ServerURL', url)
       logging.debug(f"Set server url to {url}")
     else:
       logging.debug(f"Server selection canceled")
@@ -474,7 +262,7 @@ Disable if data is added or removed from the database."""
       return
     # Ask user confirmation
     if not slicer.util.confirmYesNoDisplay("Are you sure you want to delete {0} series from the remote server?".format(len(studySeriesToDelete)),
-      parent=self.browserWidget):
+      parent=self.ui.browserWidget):
       return
     # Delete from server
     for studyInstanceUID, seriesInstanceUID in studySeriesToDelete:
@@ -486,44 +274,44 @@ Disable if data is added or removed from the database."""
     self.useCacheFlag = originalUseCacheFlag
 
   def showBrowser(self):
-    if not self.browserWidget.isVisible():
+    if not self.ui.browserWidget.isVisible():
       self.popupPositioned = False
-      self.browserWidget.show()
+      self.ui.browserWidget.show()
       if self.popupGeometry.isValid():
-        self.browserWidget.setGeometry(self.popupGeometry)
-    self.browserWidget.raise_()
+        self.ui.browserWidget.setGeometry(self.popupGeometry)
+    self.ui.browserWidget.raise_()
 
     if not self.popupPositioned:
       mainWindow = slicer.util.mainWindow()
       screenMainPos = mainWindow.pos
       x = screenMainPos.x() + 100
       y = screenMainPos.y() + 100
-      self.browserWidget.move(qt.QPoint(x, y))
+      self.ui.browserWidget.move(qt.QPoint(x, y))
       self.popupPositioned = True
 
   def showStatus(self, message, waitMessage='Waiting for DICOMweb server .... '):
-    self.statusLabel.text = waitMessage + message
-    self.statusLabel.setStyleSheet("QLabel { background-color : #F0F0F0 ; color : #383838; }")
+    self.ui.statusLabel.text = waitMessage + message
+    self.ui.statusLabel.setStyleSheet("QLabel { background-color : #F0F0F0 ; color : #383838; }")
     slicer.app.processEvents()
 
   def clearStatus(self):
-    self.statusLabel.text = ''
-    self.statusLabel.setStyleSheet("QLabel { background-color : white; color : black; }")
+    self.ui.statusLabel.text = ''
+    self.ui.statusLabel.setStyleSheet("QLabel { background-color : white; color : black; }")
 
   def onStoragePathButton(self):
-    self.storagePath = self.storagePathButton.directory
+    self.storagePath = self.ui.storagePathButton.directory
 
   def onStudiesSelectAllButton(self):
-    self.studiesTableWidget.selectAll()
+    self.ui.studiesTableWidget.selectAll()
 
   def onStudiesSelectNoneButton(self):
-    self.studiesTableWidget.clearSelection()
+    self.ui.studiesTableWidget.clearSelection()
 
   def onSeriesSelectAllButton(self):
-    self.seriesTableWidget.selectAll()
+    self.ui.seriesTableWidget.selectAll()
 
   def onSeriesSelectNoneButton(self):
-    self.seriesTableWidget.clearSelection()
+    self.ui.seriesTableWidget.clearSelection()
 
   def addServerUrlToHistory(self, url):
     urlHistory = list(qt.QSettings().value('DICOMwebBrowser/ServerURLHistory', []))
@@ -534,19 +322,19 @@ Disable if data is added or removed from the database."""
     # keep the 10 most recent urls
     urlHistory = urlHistory[:10]
     qt.QSettings().setValue('DICOMwebBrowser/ServerURLHistory', urlHistory)
-    self.serverUrlLineEdit.clear()
-    self.serverUrlLineEdit.addItems(urlHistory)
+    self.ui.serverUrlLineEdit.clear()
+    self.ui.serverUrlLineEdit.addItems(urlHistory)
 
   def connectToServer(self):
     # Save current server URL to application settings
-    qt.QSettings().setValue('DICOMwebBrowser/ServerURL', self.serverUrlLineEdit.currentText)
-    self.addServerUrlToHistory(self.serverUrlLineEdit.currentText)
+    qt.QSettings().setValue('DICOMwebBrowser/ServerURL', self.ui.serverUrlLineEdit.currentText)
+    self.addServerUrlToHistory(self.ui.serverUrlLineEdit.currentText)
 
-    self.loadButton.enabled = False
-    self.indexButton.enabled = False
+    self.ui.loadButton.enabled = False
+    self.ui.indexButton.enabled = False
     self.clearStudiesTableWidget()
     self.clearSeriesTableWidget()
-    self.serverUrl = self.serverUrlLineEdit.currentText
+    self.serverUrl = self.ui.serverUrlLineEdit.currentText
     import hashlib
     cacheFile = self.cachePath + hashlib.md5(self.serverUrl.encode()).hexdigest() + '.json'
     self.progressMessage = "Getting available studies for server: " + self.serverUrl
@@ -590,7 +378,7 @@ Disable if data is added or removed from the database."""
       self.populateStudiesTableWidget(studiesList)
       self.clearStatus()
       groupBoxTitle = 'Studies (Accessed: ' + time.ctime(os.path.getmtime(cacheFile)) + ')'
-      self.studiesCollapsibleGroupBox.setTitle(groupBoxTitle)
+      self.ui.studiesCollapsibleGroupBox.setTitle(groupBoxTitle)
 
     else:
       try:
@@ -604,7 +392,7 @@ Disable if data is added or removed from the database."""
 
         self.populateStudiesTableWidget(studies)
         groupBoxTitle = 'Studies (Accessed: ' + time.ctime(os.path.getmtime(cacheFile)) + ')'
-        self.studiesCollapsibleGroupBox.setTitle(groupBoxTitle)
+        self.ui.studiesCollapsibleGroupBox.setTitle(groupBoxTitle)
         self.clearStatus()
 
       except Exception as error:
@@ -621,8 +409,8 @@ Disable if data is added or removed from the database."""
         self.studySelected(widgetIndex)
 
   def studySelected(self, row):
-    self.loadButton.enabled = False
-    self.indexButton.enabled = False
+    self.ui.loadButton.enabled = False
+    self.ui.indexButton.enabled = False
     self.selectedStudyInstanceUID = self.studyInstanceUIDWidgets[row].text()
     self.selectedStudyRow = row
     cacheFile = self.cachePath + self.selectedStudyInstanceUID + '.json'
@@ -638,7 +426,7 @@ Disable if data is added or removed from the database."""
       else:
         groupBoxTitle = 'Series '
 
-      self.seriesCollapsibleGroupBox.setTitle(groupBoxTitle)
+      self.ui.seriesCollapsibleGroupBox.setTitle(groupBoxTitle)
 
     else:
       try:
@@ -653,7 +441,7 @@ Disable if data is added or removed from the database."""
         else:
           groupBoxTitle = 'Series '
 
-        self.seriesCollapsibleGroupBox.setTitle(groupBoxTitle)
+        self.ui.seriesCollapsibleGroupBox.setTitle(groupBoxTitle)
         self.clearStatus()
 
       except Exception as error:
@@ -665,13 +453,11 @@ Disable if data is added or removed from the database."""
                     'DICOMweb Browser', message, qt.QMessageBox.Ok)
 
     self.onSeriesSelectAllButton()
-    # self.loadButton.enabled = True
-    # self.indexButton.enabled = True
 
   def updateStudyFilter(self):
-    table = self.studiesTableWidget
+    table = self.ui.studiesTableWidget
     tableColumns = self.studiesTableHeaderLabels
-    filterText = self.studiesFilter.text.upper()
+    filterText = self.ui.studiesFilter.text.upper()
     rowCount = table.rowCount
     for rowIndex in range(rowCount):
       if filterText:
@@ -689,8 +475,8 @@ Disable if data is added or removed from the database."""
         table.hideRow(rowIndex)
         # We could consider remove seelction of hidden rows.
 
-    self.studiesTableWidget.resizeColumnsToContents()
-    self.studiesTableWidgetHeader.setStretchLastSection(True)
+    self.ui.studiesTableWidget.resizeColumnsToContents()
+    self.ui.studiesTableWidget.horizontalHeader().setStretchLastSection(True)
 
   def studiesTableSelectionChanged(self):
     self.clearSeriesTableWidget()
@@ -703,15 +489,15 @@ Disable if data is added or removed from the database."""
 
   def seriesSelected(self):
     self.imagesToDownloadCount = 0
-    self.loadButton.enabled = False
-    self.indexButton.enabled = False
+    self.ui.loadButton.enabled = False
+    self.ui.indexButton.enabled = False
     for widgetIndex in range(len(self.seriesInstanceUIDWidgets)):
       if self.seriesInstanceUIDWidgets[widgetIndex].isSelected():
         #self.imagesToDownloadCount += int(self.imageCounts[widgetIndex].text())
         self.imagesToDownloadCount += 1 # TODO: check if image count can be quickly retrieved
-        self.loadButton.enabled = True
-        self.indexButton.enabled = True
-    self.imagesCountLabel.text = 'No. of images to download: ' + '<span style=" font-size:8pt; font-weight:600; color:#aa0000;">' + str(
+        self.ui.loadButton.enabled = True
+        self.ui.indexButton.enabled = True
+    self.ui.imagesCountLabel.text = 'No. of images to download: ' + '<span style=" font-size:8pt; font-weight:600; color:#aa0000;">' + str(
       self.imagesToDownloadCount) + '</span>' + ' '
 
   def onIndexButton(self):
@@ -744,15 +530,15 @@ Disable if data is added or removed from the database."""
 
         # create download queue
         downloadProgressBar = qt.QProgressBar()
-        self.seriesTableWidget.setCellWidget(widgetIndex, self.seriesTableHeaderLabels.index('Status'), downloadProgressBar)
+        self.ui.seriesTableWidget.setCellWidget(widgetIndex, self.seriesTableHeaderLabels.index('Status'), downloadProgressBar)
         # Download folder name is set from series instance
         downloadFolderPath = os.path.join(self.storagePath, hashlib.md5(selectedSeriesInstanceUID.encode()).hexdigest()) + os.sep
         self.downloadQueue.append({'studyInstanceUID': selectedStudy, 'seriesInstanceUID': selectedSeriesInstanceUID,
                                     'downloadFolderPath': downloadFolderPath, 'downloadProgressBar': downloadProgressBar})
 
-      self.seriesTableWidget.clearSelection()
-      self.studiesTableWidget.enabled = False
-      self.serverUrlLineEdit.enabled = False
+      self.ui.seriesTableWidget.clearSelection()
+      self.ui.studiesTableWidget.enabled = False
+      self.ui.serverUrlLineEdit.enabled = False
 
       # Download data sets
       selectedSeriesUIDs = self.downloadSelectedSeries()
@@ -774,12 +560,12 @@ Disable if data is added or removed from the database."""
       qt.QApplication.restoreOverrideCursor()
     except Exception as error:
       qt.QApplication.restoreOverrideCursor()
-      slicer.util.errorDisplay("Data loading failed.", parent=self.browserWidget, detailedText=traceback.format_exc())
+      slicer.util.errorDisplay("Data loading failed.", parent=self.ui.browserWidget, detailedText=traceback.format_exc())
 
     self.clearStatus()
 
   def getSeriesRowNumber(self, seriesInstanceUID):
-    table = self.seriesTableWidget
+    table = self.ui.seriesTableWidget
     seriesInstanceUIDColumnIndex = self.seriesTableHeaderLabels.index('Series Instance UID')
     for rowIndex in range(table.rowCount):
       if table.item(rowIndex, seriesInstanceUIDColumnIndex).text() == seriesInstanceUID:
@@ -791,11 +577,11 @@ Disable if data is added or removed from the database."""
     rowIndex = self.getSeriesRowNumber(seriesInstanceUID)
     if rowIndex < 0:
       return None
-    return self.seriesTableWidget.cellWidget(rowIndex, self.seriesTableHeaderLabels.index('Status'))
+    return self.ui.seriesTableWidget.cellWidget(rowIndex, self.seriesTableHeaderLabels.index('Status'))
 
   def downloadSelectedSeries(self):
     import os
-    self.cancelDownloadButton.enabled = True
+    self.ui.cancelDownloadButton.enabled = True
     indexer = ctk.ctkDICOMIndexer()
     while self.downloadQueue and not self.cancelDownloadRequested:
       queuedItem = self.downloadQueue.pop(0)
@@ -830,7 +616,7 @@ Disable if data is added or removed from the database."""
 
         # Scroll to item being currently downloaded
         rowIndex = self.getSeriesRowNumber(selectedSeries)
-        self.seriesTableWidget.scrollToItem(self.seriesTableWidget.item(rowIndex, self.seriesTableHeaderLabels.index('Status')))
+        self.ui.seriesTableWidget.scrollToItem(self.ui.seriesTableWidget.item(rowIndex, self.seriesTableHeaderLabels.index('Status')))
 
         instancesAlreadyInDatabase = slicer.dicomDatabase.instancesForSeries(selectedSeries)
         if instancesAlreadyInDatabase:
@@ -868,7 +654,7 @@ Disable if data is added or removed from the database."""
         self.clearStatus()
 
         rowIndex = self.getSeriesRowNumber(selectedSeries)
-        table = self.seriesTableWidget
+        table = self.ui.seriesTableWidget
         item = table.item(rowIndex, 1)
         item.setIcon(self.downloadIcon if self.cancelDownloadRequested else self.storedlIcon)
         if not self.cancelDownloadRequested:
@@ -899,16 +685,16 @@ Disable if data is added or removed from the database."""
       self.removeDownloadProgressBar(queuedItem['seriesInstanceUID'])
     self.downloadQueue = []
 
-    self.cancelDownloadButton.enabled = False
-    self.serverUrlLineEdit.enabled = True
-    self.studiesTableWidget.enabled = True
+    self.ui.cancelDownloadButton.enabled = False
+    self.ui.serverUrlLineEdit.enabled = True
+    self.ui.studiesTableWidget.enabled = True
 
   def removeDownloadProgressBar(self, selectedSeries):
     rowIndex = self.getSeriesRowNumber(selectedSeries)
     if rowIndex < 0:
       # Already removed
       return
-    self.seriesTableWidget.setCellWidget(rowIndex, self.seriesTableHeaderLabels.index('Status'), None)
+    self.ui.seriesTableWidget.setCellWidget(rowIndex, self.seriesTableHeaderLabels.index('Status'), None)
 
   def setTableCellTextFromDICOM(self, table, columnNames, dicomTags, rowIndex, columnName, columnDicomTag):
     try:
@@ -931,10 +717,9 @@ Disable if data is added or removed from the database."""
     return widget, values
 
   def populateStudiesTableWidget(self, studies):
-    self.studiesSelectAllButton.enabled = True
-    self.studiesSelectNoneButton.enabled = True
-    # self.clearStudiesTableWidget()
-    table = self.studiesTableWidget
+    self.ui.studiesSelectAllButton.enabled = True
+    self.ui.studiesSelectNoneButton.enabled = True
+    table = self.ui.studiesTableWidget
     tableColumns = self.studiesTableHeaderLabels
 
     rowIndex = self.studiesTableRowCount
@@ -952,18 +737,17 @@ Disable if data is added or removed from the database."""
       rowIndex += 1
 
     # Resize columns
-    self.studiesTableWidget.resizeColumnsToContents()
-    self.studiesTableWidgetHeader.setStretchLastSection(True)
+    self.ui.studiesTableWidget.resizeColumnsToContents()
+    self.ui.studiesTableWidget.horizontalHeader().setStretchLastSection(True)
     self.studiesTableRowCount = rowIndex
 
     self.updateStudyFilter()
 
   def populateSeriesTableWidget(self, studyUID, series):
-    # self.clearSeriesTableWidget()
-    table = self.seriesTableWidget
+    table = self.ui.seriesTableWidget
     tableColumns = self.seriesTableHeaderLabels
-    self.seriesSelectAllButton.enabled = True
-    self.seriesSelectNoneButton.enabled = True
+    self.ui.seriesSelectAllButton.enabled = True
+    self.ui.seriesSelectNoneButton.enabled = True
 
     rowIndex = self.seriesTableRowCount
     table.setRowCount(rowIndex + len(series))
@@ -998,21 +782,20 @@ Disable if data is added or removed from the database."""
     self.seriesTableRowCount = rowIndex
 
     # # Resize columns
-    # self.seriesTableWidget.resizeColumnsToContents()
-    # self.seriesTableWidgetHeader.setStretchLastSection(True)
+    self.ui.seriesTableWidget.resizeColumnsToContents()
 
   def clearStudiesTableWidget(self):
     self.studiesTableRowCount = 0
-    table = self.studiesTableWidget
-    self.studiesCollapsibleGroupBox.setTitle('Studies')
+    table = self.ui.studiesTableWidget
+    self.ui.studiesCollapsibleGroupBox.setTitle('Studies')
     self.studyInstanceUIDWidgets = []
     table.clear()
     table.setHorizontalHeaderLabels(self.studiesTableHeaderLabels)
 
   def clearSeriesTableWidget(self):
     self.seriesTableRowCount = 0
-    table = self.seriesTableWidget
-    self.seriesCollapsibleGroupBox.setTitle('Series')
+    table = self.ui.seriesTableWidget
+    self.ui.seriesCollapsibleGroupBox.setTitle('Series')
     self.seriesInstanceUIDWidgets = []
     table.clear()
     table.setHorizontalHeaderLabels(self.seriesTableHeaderLabels)
